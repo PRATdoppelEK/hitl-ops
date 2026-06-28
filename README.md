@@ -27,7 +27,7 @@ MULTI-AGENT PIPELINE
   Agent 1 — Extraction       → structured features
   Agent 2 — Anomaly Detection → flags + severity
   Agent 3 — Classification    → normal / warning / critical
-  Agent 4 — Decision          → ignore / review / escalate
+  Agent 4 — Decision          → ignore / review / escalate / shutdown
         ↓
 CONFIDENCE ROUTER
   High   → auto-approve
@@ -58,42 +58,35 @@ AUDIT + DASHBOARD
 hitl-ops/
 ├── agents/
 │   ├── extraction_agent.py       # Agent 1 — ECM data extraction + feature engineering
-│   ├── anomaly_agent.py          # Agent 2 — anomaly detection (voltage, temp, SOC)
-│   ├── classification_agent.py   # Agent 3 — ML classification
-│   └── decision_agent.py         # Agent 4 — decision recommendation
+│   ├── anomaly_agent.py          # Agent 2 — anomaly detection (voltage, temp, SOC, imbalance)
+│   ├── classification_agent.py   # Agent 3 — ML classification with confidence scoring
+│   └── decision_agent.py         # Agent 4 — decision engine with P0–P4 priority routing
 │
 ├── hitl/
-│   ├── confidence_router.py      # Routes by confidence threshold
-│   ├── review_interface.py       # Browser-based human review UI
-│   └── feedback_collector.py     # Stores human ratings + corrections
+│   ├── confidence_router.py      # Routes by confidence threshold + drift detection
+│   └── review_interface.py       # Browser-based human review UI (localhost:8765)
 │
 ├── quality_gate/
-│   ├── model_evaluator.py        # Evaluates model metrics
-│   ├── deployment_gate.py        # Human approval before deploy
-│   └── rollback.py               # Auto-rollback on rejection
+│   └── quality_gate.py           # Model evaluation + human deployment approval (localhost:8766)
 │
 ├── feedback_loop/
-│   ├── dataset_builder.py        # Builds training data from corrections
-│   └── rlhf_exporter.py          # Exports RLHF-format dataset
+│   └── feedback_loop.py          # RLHF dataset builder + multi-format exporter
 │
 ├── dashboard/
-│   └── app.py                    # Streamlit monitoring dashboard
+│   └── app.py                    # Streamlit monitoring dashboard (localhost:8501)
 │
 ├── workflows/
-│   └── hitl_ops_full.json        # Complete n8n workflow
-│
-├── audit/
-│   └── audit_logger.py           # Full audit trail
+│   └── hitl_ops_full.json        # Complete n8n workflow — schedule + webhook triggers
 │
 ├── data/
 │   ├── battery_sensors/          # Sample battery sensor data
 │   └── sample_models/            # Sample ML models for quality gate
 │
-├── results/
-│   ├── approved/
-│   ├── rejected/
-│   ├── audit_trail.json
-│   └── rlhf_dataset.jsonl
+├── results/                      # Pipeline outputs (gitignored)
+│   ├── approved/                 # Approved model manifests
+│   ├── rejected/                 # Rejected model manifests
+│   ├── audit_trail.json          # Full audit trail
+│   └── rlhf_dataset.jsonl        # RLHF training dataset
 │
 ├── requirements.txt
 └── README.md
@@ -110,7 +103,7 @@ hitl-ops/
 | Deep Learning | PyTorch 2.6 (MPS — Apple M2) |
 | LLM | Ollama — mistral + nomic-embed-text |
 | Vector Store | FAISS |
-| Human Review UI | Python (browser-based) |
+| Human Review UI | Python (browser-based, zero dependencies) |
 | Orchestration | n8n |
 | Dashboard | Streamlit |
 | Data Source | battery-ecm-simulation (ECM model) |
@@ -126,12 +119,27 @@ cd hitl-ops
 
 # Install dependencies
 pip install -r requirements.txt
+```
 
-# Run Agent 1 — Extraction
-python agents/extraction_agent.py
+---
 
-# Run the full pipeline (coming soon)
-python run_pipeline.py
+## ▶️ Quick Demo
+
+```bash
+# 1. Run the full pipeline (all 4 agents + router)
+python hitl/confidence_router.py
+
+# 2. Open human review UI
+python hitl/review_interface.py        # → http://localhost:8765
+
+# 3. Open quality gate
+python quality_gate/quality_gate.py   # → http://localhost:8766
+
+# 4. Launch monitoring dashboard
+streamlit run dashboard/app.py        # → http://localhost:8501
+
+# 5. Export RLHF dataset
+python feedback_loop/feedback_loop.py
 ```
 
 ---
@@ -145,16 +153,39 @@ The anomaly detection pipeline uses real Equivalent Circuit Model (ECM) outputs:
 | `v_terminal` | Terminal voltage | < 3.0V or > 4.25V |
 | `temp_c` | Cell temperature | > 45°C warning, > 60°C critical |
 | `soc` | State of charge | < 0.05 deep discharge |
-| `imbalance` | SOC spread across cells | > 0.05 |
-| `r0_eff` | Internal resistance | > 0.004 Ω aging signal |
-| `dv_dt` | Voltage rate of change | rapid drop → fault |
+| `imbalance` | SOC spread across cells | > 0.06 |
+| `r0_eff` | Internal resistance | > 0.004Ω aging signal |
+| `dv_dt` | Voltage rate of change | < -0.005 V/s rapid drop |
+| `dt_dt` | Temperature rate of change | > 0.05 °C/s thermal event |
 
 ---
 
-## 🔄 HITL Philosophy
+## 🤖 Agent Pipeline
+
+| Agent | Input | Output |
+|---|---|---|
+| **Agent 1 — Extraction** | ECM simulation (WLTP/CC/CCCV) | Structured feature dict per timestep |
+| **Agent 2 — Anomaly Detection** | Feature dict | Anomaly flags + severity (18 rules) |
+| **Agent 3 — Classification** | Anomaly flags | Label (normal/warning/critical) + confidence |
+| **Agent 4 — Decision** | Label + confidence | Action (ignore/monitor/review/escalate/shutdown) + priority P0–P4 |
+
+---
+
+## 🔀 Confidence Router
+
+| Confidence | Priority | Routing |
+|---|---|---|
+| High + normal | P3–P4 | ✅ Auto-approve |
+| Medium or warning | P2 | 🟡 Human review |
+| Critical (any confidence) | P0–P1 | 🔴 Escalation queue + alert |
+
+---
+
+## 🔄 RLHF Philosophy
 
 This project treats humans not as a bottleneck but as a **signal source**:
 - Every human correction improves the model via RLHF
+- Quality ratings (1–5) become reward signals for training
 - Nothing deploys without explicit human sign-off
 - Every decision — agent or human — is fully audited
 
