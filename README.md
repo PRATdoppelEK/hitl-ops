@@ -165,15 +165,15 @@ This project treats humans not as a bottleneck but as a **signal source**:
 | Component | Status |
 |---|---|
 | Agent 1 — Extraction | ✅ Done |
-| Agent 2 — Anomaly Detection | 🔄 In Progress |
-| Agent 3 — Classification | ⏳ Planned |
-| Agent 4 — Decision | ⏳ Planned |
-| Confidence Router | ⏳ Planned |
-| Human Review Interface | ⏳ Planned |
-| Quality Gate | ⏳ Planned |
-| Feedback Loop + RLHF | ⏳ Planned |
-| Streamlit Dashboard | ⏳ Planned |
-| n8n Workflow | ⏳ Planned |
+| Agent 2 — Anomaly Detection | ✅ Done |
+| Agent 3 — Classification | ✅ Done |
+| Agent 4 — Decision | ✅ Done |
+| Confidence Router | ✅ Done |
+| Human Review Interface | ✅ Done |
+| Quality Gate | ✅ Done |
+| Feedback Loop + RLHF | ✅ Done |
+| Streamlit Dashboard | ✅ Done |
+| n8n Workflow | ✅ Done |
 
 ---
 
