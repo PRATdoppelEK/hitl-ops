@@ -1,0 +1,28 @@
+# HITL-Ops — Requirements
+# Human-in-the-Loop ML Operations Platform
+# Author: Prateek Gaur
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+
+# ── Deep Learning ─────────────────────────────────────────────────────────────
+torch>=2.6.0          # PyTorch — use weights_only=False on M2
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+
+# ── Vector Store ──────────────────────────────────────────────────────────────
+faiss-cpu>=1.7.4      # CPU version — MPS not supported by FAISS
+
+# ── LLM / Embeddings (via Ollama — no pip install needed) ────────────────────
+# ollama             # Run: ollama pull mistral
+#                    # Run: ollama pull nomic-embed-text
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dateutil>=2.8.2
+pathlib2>=2.3.7
+
+# ── Dev / Testing ─────────────────────────────────────────────────────────────
+pytest>=7.4.0

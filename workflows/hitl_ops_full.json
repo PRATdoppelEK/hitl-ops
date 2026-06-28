@@ -1,0 +1,352 @@
+{
+  "name": "HITL-Ops Full Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "node-trigger",
+      "name": "⏱ Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [180, 400],
+      "notes": "Triggers the pipeline every 30 minutes. Can also be triggered manually or via webhook."
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python agents/extraction_agent.py 2>&1"
+      },
+      "id": "node-agent1",
+      "name": "🤖 Agent 1 — Extraction",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [400, 400],
+      "notes": "Runs ECM pack simulation (WLTP profile) with 25% fault injection. Outputs extraction_output.jsonl"
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python agents/anomaly_agent.py 2>&1"
+      },
+      "id": "node-agent2",
+      "name": "🔍 Agent 2 — Anomaly Detection",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [620, 400],
+      "notes": "Applies 14 cell-level + 4 pack-level anomaly rules. Outputs anomaly_output.jsonl"
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python agents/classification_agent.py 2>&1"
+      },
+      "id": "node-agent3",
+      "name": "🏷 Agent 3 — Classification",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [840, 400],
+      "notes": "Classifies records as normal/warning/critical with confidence scores. Outputs classification_output.jsonl"
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python agents/decision_agent.py 2>&1"
+      },
+      "id": "node-agent4",
+      "name": "⚡ Agent 4 — Decision",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1060, 400],
+      "notes": "Assigns decisions (ignore/monitor/review/escalate/shutdown) with priority P0-P4. Outputs decision_output.jsonl"
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python hitl/confidence_router.py 2>&1"
+      },
+      "id": "node-router",
+      "name": "🔀 Confidence Router",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1280, 400],
+      "notes": "Routes records to escalation_queue, human_review, or auto_approve. Saves 4 JSONL files + manifest."
+    },
+    {
+      "parameters": {
+        "filePath": "/Users/prateekgaur/Desktop/github/hitl-ops/results/router_manifest.json"
+      },
+      "id": "node-read-manifest",
+      "name": "📄 Read Manifest",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1500, 400],
+      "notes": "Read routing manifest to check drift alerts and escalation count."
+    },
+    {
+      "parameters": {
+        "jsCode": "const manifest = JSON.parse(items[0].binary.data.toString('utf8'));\nconst escalationCount = manifest.escalation_queue || 0;\nconst shutdownEvents  = manifest.shutdown_events  || 0;\nconst driftAlerts     = manifest.drift_alerts      || [];\nconst autoRate        = manifest.auto_approve_rate || 0;\n\nreturn [{\n  json: {\n    escalationCount,\n    shutdownEvents,\n    driftAlerts,\n    autoRate,\n    hasEscalations: escalationCount > 0,\n    hasShutdown:    shutdownEvents  > 0,\n    hasDrift:       driftAlerts.length > 0,\n    batchId:        manifest.batch_id,\n    routedAt:       manifest.routed_at,\n  }\n}];"
+      },
+      "id": "node-parse-manifest",
+      "name": "🧮 Parse Manifest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1720, 400],
+      "notes": "Extracts escalation count, shutdown events, drift alerts from manifest JSON."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasShutdown}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-check-shutdown",
+      "name": "🚨 Shutdown Events?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1940, 280],
+      "notes": "Routes to P0 alert if any shutdown events detected."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasEscalations}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-check-escalations",
+      "name": "⚠️ Escalations?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1940, 520],
+      "notes": "Routes to P1 alert if escalation queue is non-empty."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items[0].json;\nreturn [{\n  json: {\n    subject:  '[P0 CRITICAL] HITL-Ops — SHUTDOWN EVENT DETECTED',\n    message:  `🔴 SHUTDOWN ALERT\\n\\nBatch: ${data.batchId}\\nShutdown Events: ${data.shutdownEvents}\\nEscalations: ${data.escalationCount}\\nAuto-approve rate: ${(data.autoRate*100).toFixed(1)}%\\n\\nImmediate action required.\\nReview interface: http://localhost:8765\\n\\nTime: ${data.routedAt}`,\n    priority: 'P0',\n    alert_type: 'shutdown',\n  }\n}];"
+      },
+      "id": "node-build-p0-alert",
+      "name": "🔴 Build P0 Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 180],
+      "notes": "Builds P0 shutdown alert message."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items[0].json;\nreturn [{\n  json: {\n    subject:  '[P1 ALERT] HITL-Ops — Escalation Queue Non-Empty',\n    message:  `🟠 ESCALATION ALERT\\n\\nBatch: ${data.batchId}\\nEscalations: ${data.escalationCount}\\nAuto-approve rate: ${(data.autoRate*100).toFixed(1)}%\\nDrift alerts: ${data.driftAlerts.join('; ') || 'None'}\\n\\nReview interface: http://localhost:8765\\n\\nTime: ${data.routedAt}`,\n    priority: 'P1',\n    alert_type: 'escalation',\n  }\n}];"
+      },
+      "id": "node-build-p1-alert",
+      "name": "🟠 Build P1 Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 420],
+      "notes": "Builds P1 escalation alert message."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items[0].json;\nreturn [{\n  json: {\n    subject:  '[INFO] HITL-Ops — Pipeline Complete, No Escalations',\n    message:  `✅ PIPELINE COMPLETE\\n\\nBatch: ${data.batchId}\\nAll records auto-approved.\\nAuto-approve rate: ${(data.autoRate*100).toFixed(1)}%\\n\\nDashboard: http://localhost:8501\\n\\nTime: ${data.routedAt}`,\n    priority: 'P4',\n    alert_type: 'info',\n  }\n}];"
+      },
+      "id": "node-build-info",
+      "name": "✅ Build Info Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 660],
+      "notes": "Builds info message when pipeline completes with no escalations."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log alert to console (replace with email/Slack in production)\nconst alert = items[0].json;\nconsole.log(`[HITL-Ops Alert] ${alert.subject}`);\nconsole.log(alert.message);\n\n// Write alert to log file\nconst fs      = require('fs');\nconst path    = require('path');\nconst logDir  = '/Users/prateekgaur/Desktop/github/hitl-ops/results';\nconst logFile = path.join(logDir, 'n8n_alerts.jsonl');\n\nconst entry = JSON.stringify({\n  ...alert,\n  logged_at: new Date().toISOString(),\n}) + '\\n';\n\nfs.appendFileSync(logFile, entry);\n\nreturn items;"
+      },
+      "id": "node-log-alert",
+      "name": "📝 Log Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2380, 420],
+      "notes": "Logs alert to n8n_alerts.jsonl. In production: replace with Email/Slack node."
+    },
+    {
+      "parameters": {
+        "command": "cd /Users/prateekgaur/Desktop/github/hitl-ops && /opt/anaconda3/bin/python feedback_loop/feedback_loop.py 2>&1"
+      },
+      "id": "node-feedback",
+      "name": "🧠 Feedback Loop",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [2600, 400],
+      "notes": "Builds RLHF dataset from human reviews. Exports JSONL, CSV, HF format, and stats."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pipeline completion summary\nconst timestamp = new Date().toISOString();\nconsole.log(`[HITL-Ops] Pipeline run complete at ${timestamp}`);\n\nreturn [{\n  json: {\n    pipeline_complete: true,\n    completed_at: timestamp,\n    components_run: [\n      'extraction_agent',\n      'anomaly_agent',\n      'classification_agent',\n      'decision_agent',\n      'confidence_router',\n      'feedback_loop',\n    ],\n    dashboard_url: 'http://localhost:8501',\n    review_url:    'http://localhost:8765',\n    gate_url:      'http://localhost:8766',\n  }\n}];"
+      },
+      "id": "node-complete",
+      "name": "🏁 Pipeline Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2820, 400],
+      "notes": "Marks pipeline run as complete. Check dashboard at localhost:8501."
+    },
+    {
+      "parameters": {
+        "path": "hitl-ops-trigger",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "🌐 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [180, 600],
+      "notes": "Alternative trigger via HTTP POST to /webhook/hitl-ops-trigger. Useful for CI/CD integration."
+    }
+  ],
+  "connections": {
+    "⏱ Schedule Trigger": {
+      "main": [
+        [{"node": "🤖 Agent 1 — Extraction", "type": "main", "index": 0}]
+      ]
+    },
+    "🌐 Webhook Trigger": {
+      "main": [
+        [{"node": "🤖 Agent 1 — Extraction", "type": "main", "index": 0}]
+      ]
+    },
+    "🤖 Agent 1 — Extraction": {
+      "main": [
+        [{"node": "🔍 Agent 2 — Anomaly Detection", "type": "main", "index": 0}]
+      ]
+    },
+    "🔍 Agent 2 — Anomaly Detection": {
+      "main": [
+        [{"node": "🏷 Agent 3 — Classification", "type": "main", "index": 0}]
+      ]
+    },
+    "🏷 Agent 3 — Classification": {
+      "main": [
+        [{"node": "⚡ Agent 4 — Decision", "type": "main", "index": 0}]
+      ]
+    },
+    "⚡ Agent 4 — Decision": {
+      "main": [
+        [{"node": "🔀 Confidence Router", "type": "main", "index": 0}]
+      ]
+    },
+    "🔀 Confidence Router": {
+      "main": [
+        [{"node": "📄 Read Manifest", "type": "main", "index": 0}]
+      ]
+    },
+    "📄 Read Manifest": {
+      "main": [
+        [{"node": "🧮 Parse Manifest", "type": "main", "index": 0}]
+      ]
+    },
+    "🧮 Parse Manifest": {
+      "main": [
+        [
+          {"node": "🚨 Shutdown Events?",  "type": "main", "index": 0},
+          {"node": "⚠️ Escalations?",      "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "🚨 Shutdown Events?": {
+      "main": [
+        [{"node": "🔴 Build P0 Alert",     "type": "main", "index": 0}],
+        [{"node": "🧠 Feedback Loop",       "type": "main", "index": 0}]
+      ]
+    },
+    "⚠️ Escalations?": {
+      "main": [
+        [{"node": "🟠 Build P1 Alert",     "type": "main", "index": 0}],
+        [{"node": "✅ Build Info Message",  "type": "main", "index": 0}]
+      ]
+    },
+    "🔴 Build P0 Alert": {
+      "main": [
+        [{"node": "📝 Log Alert",           "type": "main", "index": 0}]
+      ]
+    },
+    "🟠 Build P1 Alert": {
+      "main": [
+        [{"node": "📝 Log Alert",           "type": "main", "index": 0}]
+      ]
+    },
+    "✅ Build Info Message": {
+      "main": [
+        [{"node": "📝 Log Alert",           "type": "main", "index": 0}]
+      ]
+    },
+    "📝 Log Alert": {
+      "main": [
+        [{"node": "🧠 Feedback Loop",       "type": "main", "index": 0}]
+      ]
+    },
+    "🧠 Feedback Loop": {
+      "main": [
+        [{"node": "🏁 Pipeline Complete",   "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {"name": "hitl-ops"},
+    {"name": "battery-ecm"},
+    {"name": "ml-pipeline"},
+    {"name": "rlhf"}
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2026-06-28T00:00:00.000Z",
+  "id": "hitl-ops-workflow-v1",
+  "meta": {
+    "instanceId": "hitl-ops-local",
+    "templateCredsSetupCompleted": true
+  },
+  "_readme": {
+    "description": "HITL-Ops Full Pipeline — n8n workflow",
+    "author": "Prateek Gaur",
+    "project": "hitl-ops",
+    "how_to_import": [
+      "1. Open n8n (npx n8n or docker)",
+      "2. Go to Workflows → Import from file",
+      "3. Select this file: hitl_ops_full.json",
+      "4. Update Python path if needed (currently /opt/anaconda3/bin/python)",
+      "5. Update project path if needed (currently /Users/prateekgaur/Desktop/github/hitl-ops)",
+      "6. Activate the workflow"
+    ],
+    "triggers": [
+      "Schedule: every 30 minutes (configurable)",
+      "Webhook: POST /webhook/hitl-ops-trigger"
+    ],
+    "pipeline_flow": [
+      "Agent 1 (Extraction) → Agent 2 (Anomaly) → Agent 3 (Classification) → Agent 4 (Decision)",
+      "→ Confidence Router → Parse Manifest",
+      "→ Check Shutdown? → P0 Alert → Log",
+      "→ Check Escalations? → P1 Alert / Info → Log",
+      "→ Feedback Loop → Pipeline Complete"
+    ],
+    "ports": {
+      "review_interface": 8765,
+      "quality_gate":     8766,
+      "streamlit_dashboard": 8501,
+      "n8n": 5678
+    }
+  }
+}
