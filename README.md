@@ -51,6 +51,20 @@ AUDIT + DASHBOARD
 ```
 
 ---
+## 📸 Screenshots
+
+### Human Review Interface
+![Review Interface](screenshots/review_interface.png)
+
+### Quality Gate
+![Quality Gate](screenshots/quality_gate.png)
+
+### Streamlit Dashboard
+![Dashboard](screenshots/dashboard.png)
+
+### Pipeline Terminal Output
+![Pipeline](screenshots/pipeline_output.png)
+
 
 ## 📦 Project Structure
 
