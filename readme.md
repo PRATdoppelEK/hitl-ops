@@ -5,16 +5,20 @@
 
 ---
 
+> **📌 About this repo:** This is a showcase repo — write-up, architecture, and results only. The full implementation lives in a private core repo (kept private to protect the code and as a backup) and is available for a live walkthrough on request, e.g. in an interview.
+
+---
+
 ## 🎯 What This Is
 
-HITL-Ops is a production-grade ML operations system that combines **4 core ML engineering concepts** into one cohesive platform:
+HITL-Ops is an ML operations prototype that combines **4 core ML engineering concepts** into one cohesive platform:
 
 | Concept | Component |
 |---|---|
 | Multi-Agent Pipeline | 4 specialized agents with HITL checkpoints |
-| Battery Anomaly Detection | Real ECM sensor data — voltage, SOC, temperature |
+| Battery Anomaly Detection | Simulated ECM data — voltage, SOC, temperature |
 | ML Quality Gate | Human approval before any model deployment |
-| RLHF Feedback Loop | Human corrections → training dataset → model improves |
+| Human Feedback Loop | Human corrections → training dataset → model retrains |
 
 ---
 
@@ -35,7 +39,7 @@ CONFIDENCE ROUTER
   Low    → escalate + alert
         ↓
 HUMAN REVIEW INTERFACE (browser UI)
-  Review · Correct · Rate (1–5 for RLHF)
+  Review · Correct · Rate (1–5)
         ↓
 QUALITY GATE
   Model metrics evaluated
@@ -43,7 +47,7 @@ QUALITY GATE
   Auto-rollback on rejection
         ↓
 FEEDBACK LOOP
-  Corrections → RLHF dataset
+  Corrections → feedback dataset
   Model retrains and improves
         ↓
 AUDIT + DASHBOARD
@@ -84,7 +88,7 @@ hitl-ops/
 │   └── quality_gate.py           # Model evaluation + human deployment approval (localhost:8766)
 │
 ├── feedback_loop/
-│   └── feedback_loop.py          # RLHF dataset builder + multi-format exporter
+│   └── feedback_loop.py          # Feedback dataset builder + multi-format exporter
 │
 ├── dashboard/
 │   └── app.py                    # Streamlit monitoring dashboard (localhost:8501)
@@ -100,7 +104,7 @@ hitl-ops/
 │   ├── approved/                 # Approved model manifests
 │   ├── rejected/                 # Rejected model manifests
 │   ├── audit_trail.json          # Full audit trail
-│   └── rlhf_dataset.jsonl        # RLHF training dataset
+│   └── rlhf_dataset.jsonl        # Human-feedback training dataset
 │
 ├── requirements.txt
 └── README.md
@@ -152,7 +156,7 @@ python quality_gate/quality_gate.py   # → http://localhost:8766
 # 4. Launch monitoring dashboard
 streamlit run dashboard/app.py        # → http://localhost:8501
 
-# 5. Export RLHF dataset
+# 5. Export human-feedback dataset
 python feedback_loop/feedback_loop.py
 ```
 
@@ -160,7 +164,8 @@ python feedback_loop/feedback_loop.py
 
 ## 📊 Domain: Battery ECM Data
 
-The anomaly detection pipeline uses real Equivalent Circuit Model (ECM) outputs:
+The anomaly detection pipeline uses outputs of the Equivalent Circuit Model (ECM) simulation
+from [battery-ecm-simulation](https://github.com/PRATdoppelEK/battery-ecm-simulation):
 
 | Feature | Description | Anomaly Threshold |
 |---|---|---|
@@ -195,13 +200,29 @@ The anomaly detection pipeline uses real Equivalent Circuit Model (ECM) outputs:
 
 ---
 
-## 🔄 RLHF Philosophy
+## 📊 Demo Run (batch_20260628_182641)
+
+| Queue | Records |
+|---|---|
+| ✅ Auto-approved | 45 (75.0%) |
+| 🟡 Human review | 1 |
+| 🔴 Escalated | 14 (23.3%) |
+| **Total** | **60** |
+
+2 of the escalated records were P0 shutdowns: cell temperature 63 °C above the 60 °C limit (thermal-runaway risk).
+
+---
+
+## 🔄 Human Feedback Philosophy
 
 This project treats humans not as a bottleneck but as a **signal source**:
-- Every human correction improves the model via RLHF
-- Quality ratings (1–5) become reward signals for training
+- Every human correction is stored and used to retrain the classifier
+- Quality ratings (1–5) are stored with each record as an additional training signal
 - Nothing deploys without explicit human sign-off
 - Every decision — agent or human — is fully audited
+
+*Note: this is supervised retraining on human-corrected labels (active-learning style), not RLHF in the LLM sense —
+there is no reward model or policy optimisation. The export file keeps the name `rlhf_dataset.jsonl`.*
 
 ---
 
@@ -216,7 +237,7 @@ This project treats humans not as a bottleneck but as a **signal source**:
 | Confidence Router | ✅ Done |
 | Human Review Interface | ✅ Done |
 | Quality Gate | ✅ Done |
-| Feedback Loop + RLHF | ✅ Done |
+| Feedback Loop | ✅ Done |
 | Streamlit Dashboard | ✅ Done |
 | n8n Workflow | ✅ Done |
 
