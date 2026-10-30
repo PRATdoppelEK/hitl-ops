@@ -48,7 +48,7 @@ QUALITY GATE
         ↓
 FEEDBACK LOOP
   Corrections → feedback dataset
-  Dataset exported for the next retraining
+  Dataset exported as labelled training data
         ↓
 AUDIT + DASHBOARD
   Full audit trail · Streamlit monitoring
@@ -213,13 +213,13 @@ from [battery-ecm-simulation](https://github.com/PRATdoppelEK/battery-ecm-simula
 ## 🔄 Human Feedback Philosophy
 
 This project treats humans not as a bottleneck but as a **signal source**:
-- Every human correction is stored and used to retrain the classifier
-- Quality ratings (1–5) are stored with each record as an additional training signal
+- Every human correction is stored and exported as labelled training data (the classifier is rule-based today; this dataset is what a trained classifier would be built from)
+- Quality ratings (1–5) are stored with each record as an additional label
 - Nothing deploys without explicit human sign-off
 - Every decision — agent or human — is fully audited
 
-*Note: this is supervised retraining on human-corrected labels (active-learning style), not RLHF in the LLM sense —
-there is no reward model or policy optimisation. The export file keeps the name `rlhf_dataset.jsonl`.*
+*Note: nothing is retrained automatically yet, and this is not RLHF in the LLM sense — there is no
+reward model or policy optimisation. The export file keeps the name `rlhf_dataset.jsonl`.*
 
 ---
 
