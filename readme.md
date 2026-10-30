@@ -18,7 +18,7 @@ HITL-Ops is an ML operations prototype that combines **4 core ML engineering con
 | Multi-Agent Pipeline | 4 specialized agents with HITL checkpoints |
 | Battery Anomaly Detection | Simulated ECM data — voltage, SOC, temperature |
 | ML Quality Gate | Human approval before any model deployment |
-| Human Feedback Loop | Human corrections → training dataset → model retrains |
+| Human Feedback Loop | Human corrections → exported training dataset |
 
 ---
 
@@ -48,7 +48,7 @@ QUALITY GATE
         ↓
 FEEDBACK LOOP
   Corrections → feedback dataset
-  Model retrains and improves
+  Dataset exported for the next retraining
         ↓
 AUDIT + DASHBOARD
   Full audit trail · Streamlit monitoring
@@ -77,7 +77,7 @@ hitl-ops/
 ├── agents/
 │   ├── extraction_agent.py       # Agent 1 — ECM data extraction + feature engineering
 │   ├── anomaly_agent.py          # Agent 2 — anomaly detection (voltage, temp, SOC, imbalance)
-│   ├── classification_agent.py   # Agent 3 — ML classification with confidence scoring
+│   ├── classification_agent.py   # Agent 3 — rule-based severity classification + confidence
 │   └── decision_agent.py         # Agent 4 — decision engine with P0–P4 priority routing
 │
 ├── hitl/
@@ -117,14 +117,11 @@ hitl-ops/
 | Layer | Technology |
 |---|---|
 | Language | Python 3.10+ |
-| Agents & Logic | Pure Python + scikit-learn |
-| Deep Learning | PyTorch 2.6 (MPS — Apple M2) |
-| LLM | Ollama — mistral + nomic-embed-text |
-| Vector Store | FAISS |
+| Agents & Logic | Pure Python + NumPy / pandas (rule-based scoring, no trained model) |
 | Human Review UI | Python (browser-based, zero dependencies) |
 | Orchestration | n8n |
 | Dashboard | Streamlit |
-| Data Source | battery-ecm-simulation (ECM model) |
+| Data Source | battery-ecm-simulation (ECM model) — clone it next to this repo or set `ECM_SRC` |
 
 ---
 
